@@ -1,0 +1,107 @@
+name: gameservers
+
+x-env: &common-env
+  AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+  SERVICE_TOKEN: service-secret
+  JWT_SECRET: game-servers-jwt-secret-key-32-bytes
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  users_service:            # Пользователи (Поспелов)
+    build: ./users_service
+    ports: ["8001:80"]
+    environment: *common-env
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+
+  catalog_service:          # Каталог серверов (Оганнисян)
+    build: ./catalog_service
+    ports: ["8002:80"]
+    environment: *common-env
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+
+  booking_service:          # Бронирование (Жулёв)
+    build: ./booking_service
+    ports: ["8003:80"]
+    environment:
+      <<: *common-env
+      POSTGRES_URL: postgresql+psycopg2://booking:booking@postgres:5432/booking_db
+      PAYMENT_URL: http://payment_service:80
+      CATALOG_URL: http://catalog_service:80
+      FINISH_CHECK_SECONDS: "5"
+    depends_on:
+      postgres: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      catalog_service: {condition: service_started}
+
+  payment_service:          # Оплата (Жулёв)
+    build: ./payment_service
+    ports: ["8004:80"]
+    environment:
+      <<: *common-env
+      POSTGRES_URL: postgresql+psycopg2://payment:payment@postgres:5432/payment_db
+      GATEWAY_DELAY_SECONDS: "2"
+    depends_on:
+      postgres: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+  monitoring_service:       # Мониторинг (Оганнисян)
+    build: ./monitoring_service
+    ports: ["8005:80"]
+    environment: *common-env
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+
+  deploy_service:           # Развёртывание (Головач)
+    build: ./deploy_service
+    ports: ["8006:80"]
+    environment:
+      <<: *common-env
+      BOOKING_URL: http://booking_service:80
+      DEPLOY_SECONDS: "5"
+      AUTO_DEPLOY: ${AUTO_DEPLOY:-true}
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+
+  notification_service:     # Уведомления (Головач)
+    build: ./notification_service
+    ports: ["8007:80"]
+    environment: *common-env
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+
+  reviews_service:          # Отзывы (Поспелов)
+    build: ./reviews_service
+    ports: ["8008:80"]
+    environment: *common-env
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+
+volumes:
+  pg_data:

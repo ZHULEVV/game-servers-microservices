@@ -1,0 +1,12 @@
+__pycache__/
+.pytest_cache/
+.env
+venv/
+*.pyc
+.DS_Store
+# отчёты сдаются отдельно, в репозиторий не входят
+*.docx
+*.pdf
+Отчёты ПР5/
+_tools/
+_work/
