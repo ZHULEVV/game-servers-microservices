@@ -17,17 +17,20 @@ def make(**over):
 
 
 def test_booking_creation_defaults():
+    """Новая модель брони создаётся в статусе created без причины отмены."""
     booking = make()
     assert booking.status == BookingStatus.CREATED
     assert booking.cancel_reason is None
 
 
 def test_booking_server_id_required():
+    """Модель брони не создаётся без обязательного поля server_id."""
     with pytest.raises(ValidationError):
         Booking(id=uuid4(), user_id=uuid4(), start=datetime.now(), end=datetime.now(),
                 status=BookingStatus.CREATED, amount=Decimal("1"), created_at=datetime.now())
 
 
 def test_booking_rejects_unknown_status():
+    """Недопустимое значение статуса отвергается валидацией."""
     with pytest.raises(ValidationError):
         make(status="teleported")

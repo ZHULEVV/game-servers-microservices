@@ -32,18 +32,24 @@ services:
       timeout: 5s
       retries: 20
 
-  users_service:            # Пользователи (Поспелов)
+  users_service:            # Пользователи (Поспелов), PostgreSQL
     build: ./users_service
     ports: ["8001:80"]
-    environment: *common-env
+    environment:
+      <<: *common-env
+      POSTGRES_URL: postgresql+psycopg2://users:users@postgres:5432/users_db
     depends_on:
+      postgres: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
 
-  catalog_service:          # Каталог серверов (Оганнисян)
+  catalog_service:          # Каталог серверов (Оганнисян), PostgreSQL
     build: ./catalog_service
     ports: ["8002:80"]
-    environment: *common-env
+    environment:
+      <<: *common-env
+      POSTGRES_URL: postgresql+psycopg2://catalog:catalog@postgres:5432/catalog_db
     depends_on:
+      postgres: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
 
   booking_service:          # Бронирование (Жулёв)
@@ -74,7 +80,9 @@ services:
   monitoring_service:       # Мониторинг (Оганнисян)
     build: ./monitoring_service
     ports: ["8005:80"]
-    environment: *common-env
+    environment:
+      <<: *common-env
+      BOOKING_URL: http://booking_service:80
     depends_on:
       rabbitmq: {condition: service_healthy}
 
@@ -84,22 +92,27 @@ services:
     environment:
       <<: *common-env
       BOOKING_URL: http://booking_service:80
-      DEPLOY_SECONDS: "5"
+      DEPLOY_SECONDS: ${DEPLOY_SECONDS:-5}
       AUTO_DEPLOY: ${AUTO_DEPLOY:-true}
     depends_on:
       rabbitmq: {condition: service_healthy}
 
-  notification_service:     # Уведомления (Головач)
+  notification_service:     # Уведомления (Головач), PostgreSQL
     build: ./notification_service
     ports: ["8007:80"]
-    environment: *common-env
+    environment:
+      <<: *common-env
+      POSTGRES_URL: postgresql+psycopg2://notification:notification@postgres:5432/notification_db
     depends_on:
+      postgres: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
 
   reviews_service:          # Отзывы (Поспелов)
     build: ./reviews_service
     ports: ["8008:80"]
-    environment: *common-env
+    environment:
+      <<: *common-env
+      USERS_URL: http://users_service:80
     depends_on:
       rabbitmq: {condition: service_healthy}
 

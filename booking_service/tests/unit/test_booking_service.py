@@ -20,6 +20,7 @@ def event(booking, **extra):
 
 # ---------- создание брони ----------
 def test_create_booking_calculates_amount_and_waits_payment(service, user_id, period, payment, publisher):
+    """Стоимость = 3 ч × 150 = 450.00; статус awaiting_payment; Payment вызван один раз; отправлено booking.created."""
     booking = create(service, user_id, period, card_token="tok_ok")
     assert booking.amount == Decimal("450.00")           # 3 ч × 150
     assert booking.status == BookingStatus.AWAITING_PAYMENT
@@ -28,21 +29,25 @@ def test_create_booking_calculates_amount_and_waits_payment(service, user_id, pe
 
 
 def test_create_booking_end_before_start(service, user_id):
+    """Окончание раньше начала – ошибка invalid_dates."""
     with pytest.raises(InvalidDates):
         service.create_booking(user_id, SERVER_ID, NOW + timedelta(hours=3), NOW + timedelta(hours=2))
 
 
 def test_create_booking_shorter_than_minimum(service, user_id):
+    """Аренда короче минимального часа – ошибка invalid_dates."""
     with pytest.raises(InvalidDates):
         service.create_booking(user_id, SERVER_ID, NOW + timedelta(hours=1), NOW + timedelta(hours=1, minutes=30))
 
 
 def test_create_booking_in_the_past(service, user_id):
+    """Начало аренды в прошлом – ошибка invalid_dates."""
     with pytest.raises(InvalidDates):
         service.create_booking(user_id, SERVER_ID, NOW - timedelta(hours=3), NOW - timedelta(hours=1))
 
 
 def test_create_booking_overlapping_slot(service, user_id, period):
+    """Пересекающаяся бронь того же сервера – ошибка slot_busy."""
     create(service, user_id, period)
     other = (period[0] + timedelta(hours=1), period[1] + timedelta(hours=1))
     with pytest.raises(SlotBusy):
@@ -50,17 +55,20 @@ def test_create_booking_overlapping_slot(service, user_id, period):
 
 
 def test_adjacent_slots_do_not_overlap(service, user_id, period):
+    """Брони встык (конец одной = начало другой) не конфликтуют."""
     create(service, user_id, period)
     create(service, uuid4(), (period[1], period[1] + timedelta(hours=2)))  # встык — разрешено
 
 
 def test_create_booking_server_unavailable(service, catalog, user_id, period):
+    """Каталог сообщил, что сервер недоступен – ошибка server_unavailable."""
     catalog.available = False
     with pytest.raises(ServerUnavailable):
         create(service, user_id, period)
 
 
 def test_create_booking_payment_down_cancels_booking(service, payment, repo, user_id, period, publisher):
+    """Payment недоступен: ошибка 503, бронь отменена (payment_unavailable), событие не отправлено."""
     payment.down = True
     with pytest.raises(DependencyUnavailable):
         create(service, user_id, period)
@@ -70,11 +78,13 @@ def test_create_booking_payment_down_cancels_booking(service, payment, repo, use
 
 
 def test_billable_hours_rounds_up():
+    """2 ч 1 мин тарифицируются как 3 часа."""
     assert billable_hours(NOW, NOW + timedelta(hours=2, minutes=1)) == 3
 
 
 # ---------- отмена и продление ----------
 def test_cancel_confirmed_booking_publishes_event(service, user_id, period, publisher):
+    """Отмена подтверждённой брони: статус cancelled, причина сохранена, отправлено booking.cancelled."""
     booking = create(service, user_id, period)
     service.handle_payment_succeeded(event(booking))
     cancelled = service.cancel_booking(booking.id, "не нужен")
@@ -83,6 +93,7 @@ def test_cancel_confirmed_booking_publishes_event(service, user_id, period, publ
 
 
 def test_cancel_finished_booking_forbidden(service, repo, user_id, period):
+    """Отмена завершённой брони – ошибка invalid_status."""
     booking = create(service, user_id, period)
     booking.status = BookingStatus.FINISHED
     repo.update(booking)
@@ -91,17 +102,20 @@ def test_cancel_finished_booking_forbidden(service, repo, user_id, period):
 
 
 def test_cancel_unknown_booking(service):
+    """Отмена несуществующей брони – ошибка not_found."""
     with pytest.raises(NotFound):
         service.cancel_booking(uuid4())
 
 
 def test_extend_in_wrong_status_forbidden(service, user_id, period):
+    """Продление неоплаченной брони – ошибка invalid_status."""
     booking = create(service, user_id, period)            # awaiting_payment
     with pytest.raises(InvalidStatus):
         service.extend_booking(booking.id, period[1] + timedelta(hours=1))
 
 
 def test_extend_recalculates_amount_and_publishes(service, user_id, period, publisher):
+    """Продление на 2 ч: сумма 750.00, отправлено booking.extended с extra_amount 300.00."""
     booking = create(service, user_id, period)
     service.handle_payment_succeeded(event(booking))
     extended = service.extend_booking(booking.id, period[1] + timedelta(hours=2))
@@ -111,6 +125,7 @@ def test_extend_recalculates_amount_and_publishes(service, user_id, period, publ
 
 
 def test_extend_into_busy_slot(service, user_id, period):
+    """Продление в занятый другой бронью период – ошибка slot_busy."""
     booking = create(service, user_id, period)
     service.handle_payment_succeeded(event(booking))
     create(service, uuid4(), (period[1], period[1] + timedelta(hours=2)))
@@ -120,6 +135,7 @@ def test_extend_into_busy_slot(service, user_id, period):
 
 # ---------- реакции на сообщения ----------
 def test_payment_succeeded_confirms_booking(service, user_id, period, publisher):
+    """payment.succeeded переводит бронь в confirmed и отправляет booking.confirmed."""
     booking = create(service, user_id, period)
     service.handle_payment_succeeded(event(booking))
     assert service.get_booking(booking.id).status == BookingStatus.CONFIRMED
@@ -127,6 +143,7 @@ def test_payment_succeeded_confirms_booking(service, user_id, period, publisher)
 
 
 def test_payment_failed_cancels_booking(service, user_id, period, publisher):
+    """payment.failed отменяет бронь с причиной payment_failed."""
     booking = create(service, user_id, period)
     service.handle_payment_failed(event(booking))
     stored = service.get_booking(booking.id)
@@ -135,6 +152,7 @@ def test_payment_failed_cancels_booking(service, user_id, period, publisher):
 
 
 def test_duplicate_event_is_ignored(service, user_id, period, publisher):
+    """Повторное событие с тем же event_id не вызывает повторной реакции."""
     booking = create(service, user_id, period)
     ev = event(booking)
     service.handle_payment_succeeded(ev)
@@ -144,6 +162,7 @@ def test_duplicate_event_is_ignored(service, user_id, period, publisher):
 
 
 def test_deploy_completed_activates_booking(service, user_id, period):
+    """deploy.completed переводит бронь confirmed → active."""
     booking = create(service, user_id, period)
     service.handle_payment_succeeded(event(booking))
     service.handle_deploy_completed(event(booking))
@@ -151,6 +170,7 @@ def test_deploy_completed_activates_booking(service, user_id, period):
 
 
 def test_finish_expired_finishes_only_past_rent(service, repo, user_id, period, publisher):
+    """Завершаются только брони с истёкшим сроком; отправляется booking.finished."""
     booking = create(service, user_id, period)
     service.handle_payment_succeeded(event(booking))
     assert service.finish_expired() == 0                  # аренда ещё не закончилась

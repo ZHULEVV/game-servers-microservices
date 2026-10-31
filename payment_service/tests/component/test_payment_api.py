@@ -33,6 +33,7 @@ def body(booking_id, user_id, amount="450.00", **extra):
 
 
 def test_create_payment_returns_pending_then_succeeds(client, booking_id, user_id):
+    """POST /payments → 201 pending; затем GET показывает succeeded."""
     resp = client.post("/api/payments", json=body(booking_id, user_id), headers=SERVICE)
     assert resp.status_code == 201 and resp.json()["status"] == "pending"
     fetched = client.get(f"/api/payments/{resp.json()['id']}", headers=user_auth(user_id))
@@ -40,6 +41,7 @@ def test_create_payment_returns_pending_then_succeeds(client, booking_id, user_i
 
 
 def test_declined_card_leads_to_failed_status(client, booking_id, user_id):
+    """Карта tok_fail: итоговый статус failed, fail_reason card_declined."""
     created = client.post("/api/payments", json=body(booking_id, user_id, card_token="tok_fail"),
                           headers=SERVICE).json()
     stored = client.get(f"/api/payments/{created['id']}", headers=SERVICE).json()
@@ -47,31 +49,37 @@ def test_declined_card_leads_to_failed_status(client, booking_id, user_id):
 
 
 def test_create_payment_invalid_amount_returns_400(client, booking_id, user_id):
+    """Сумма 0 → 400 invalid_amount."""
     resp = client.post("/api/payments", json=body(booking_id, user_id, amount="0"), headers=SERVICE)
     assert resp.status_code == 400 and resp.json()["code"] == "invalid_amount"
 
 
 def test_create_payment_by_ordinary_user_is_forbidden(client, booking_id, user_id):
+    """Создание платежа обычным пользователем → 403."""
     resp = client.post("/api/payments", json=body(booking_id, user_id), headers=user_auth(user_id))
     assert resp.status_code == 403
 
 
 def test_requests_without_credentials_are_rejected(client, booking_id, user_id):
+    """Запросы без токена и с неверным X-Service-Token → 401."""
     assert client.post("/api/payments", json=body(booking_id, user_id)).status_code == 401
     assert client.post("/api/payments", json=body(booking_id, user_id),
                        headers={"X-Service-Token": "wrong"}).status_code == 401
 
 
 def test_get_unknown_payment_returns_404(client, user_id):
+    """GET несуществующего платежа → 404."""
     assert client.get(f"/api/payments/{uuid4()}", headers=user_auth(user_id)).status_code == 404
 
 
 def test_get_foreign_payment_is_forbidden(client, booking_id, user_id):
+    """Чужой платёж → 403."""
     created = client.post("/api/payments", json=body(booking_id, user_id), headers=SERVICE).json()
     assert client.get(f"/api/payments/{created['id']}", headers=user_auth(uuid4())).status_code == 403
 
 
 def test_list_filters_and_pagination(client, user_id):
+    """Фильтр по booking_id, offset/count, total = 3."""
     booking = uuid4()
     for amount in ("100", "200", "300"):
         client.post("/api/payments", json=body(booking, user_id, amount=amount), headers=SERVICE)
@@ -82,12 +90,14 @@ def test_list_filters_and_pagination(client, user_id):
 
 
 def test_refund_paid_payment(client, booking_id, user_id):
+    """POST :refund оплаченного → 200 refunded."""
     created = client.post("/api/payments", json=body(booking_id, user_id), headers=SERVICE).json()
     resp = client.post(f"/api/payments/{created['id']}:refund", json={"reason": "тест"}, headers=user_auth(user_id))
     assert resp.status_code == 200 and resp.json()["status"] == "refunded"
 
 
 def test_refund_failed_payment_returns_409(client, booking_id, user_id):
+    """Возврат неудавшегося платежа → 409 invalid_status."""
     created = client.post("/api/payments", json=body(booking_id, user_id, card_token="tok_fail"),
                           headers=SERVICE).json()
     resp = client.post(f"/api/payments/{created['id']}:refund", json={}, headers=user_auth(user_id))
