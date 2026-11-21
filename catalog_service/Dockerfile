@@ -10,4 +10,4 @@ COPY ./alembic.ini /code/alembic.ini
 
 EXPOSE 80
 
-CMD ["/bin/sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 80"]
+CMD ["/bin/sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-80}"]
